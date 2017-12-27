@@ -858,31 +858,15 @@ impl Node {
         };
         let public_config_api_thread = match self.api_options.public_api_address {
             Some(listen_address) => {
-                let mut mount = Mount::new();
-                mount.mount("api/services", blockchain.mount_public_api());
-
-                let mut router = Router::new();
-                let pool = Arc::clone(self.state().transactions());
-                let system_api = public::SystemApi::new(pool, blockchain.clone());
-                system_api.wire(&mut router);
-                mount.mount("api/system", router);
-                if self.api_options.enable_blockchain_explorer {
-                    let mut router = Router::new();
-                    let explorer_api = public::ExplorerApi::new(blockchain);
-                    explorer_api.wire(&mut router);
-                    mount.mount("api/explorer", router);
-                }
-
-                let cors_middlware = self.api_options.allow_origin.as_ref().map(
-                    AllowOrigin::as_middleware,
+                let handler = create_public_api_handler(
+                    blockchain.mount_public_api(),
+                    Arc::clone(self.state().transactions()),
+                    blockchain,
+                    &self.api_options,
                 );
                 let thread = thread::spawn(move || {
                     info!("Public exonum api started on {}", listen_address);
-                    let mut chain = Chain::new(mount);
-                    if let Some(middlware) = cors_middlware {
-                        chain.link_around(middlware);
-                    }
-                    Iron::new(chain).http(listen_address).unwrap();
+                    Iron::new(handler).http(listen_address).unwrap();
                 });
                 Some(thread)
             }
@@ -947,4 +931,36 @@ impl Node {
     pub fn channel(&self) -> ApiSender {
         ApiSender::new(self.channel.api_requests.0.clone())
     }
+}
+
+/// For testing only
+#[doc(hidden)]
+pub fn create_public_api_handler(
+    api: Mount,
+    pool: TxPool,
+    blockchain: Blockchain,
+    config: &NodeApiConfig,
+) -> Chain {
+    let mut mount = Mount::new();
+    mount.mount("api/services", api);
+
+    let mut router = Router::new();
+    let system_api = public::SystemApi::new(pool, blockchain.clone());
+    system_api.wire(&mut router);
+    mount.mount("api/system", router);
+    if config.enable_blockchain_explorer {
+        let mut router = Router::new();
+        let explorer_api = public::ExplorerApi::new(blockchain);
+        explorer_api.wire(&mut router);
+        mount.mount("api/explorer", router);
+    }
+
+    let cors_middlware = config.allow_origin.as_ref().map(
+        AllowOrigin::as_middleware,
+    );
+    let mut chain = Chain::new(mount);
+    if let Some(middlware) = cors_middlware {
+        chain.link_around(middlware);
+    }
+    chain
 }
