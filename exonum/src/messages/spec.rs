@@ -65,11 +65,10 @@ macro_rules! message {
     struct $name:ident {
         const TYPE = $extension:expr;
         const ID = $id:expr;
-        const SIZE = $body:expr;
 
         $(
         $(#[$field_attr:meta])*
-        field $field_name:ident : $field_type:ty [$from:expr => $to:expr]
+        field $field_name:ident : $field_type:ty
         )*
     }) => (
         #[derive(Clone, PartialEq)]
@@ -424,6 +423,32 @@ macro_rules! message {
             }
         }
 
+    );
+
+    (
+    $(#[$attr:meta])*
+    struct $name:ident {
+        const TYPE = $extension:expr;
+        const ID = $id:expr;
+        const SIZE = $body:expr;
+
+        $(
+        $(#[$field_attr:meta])*
+        field $field_name:ident : $field_type:ty [$from:expr => $to:expr]
+        )*
+    }) => (
+        message! {
+            $(#[$attr])*
+            struct $name {
+                const TYPE = $extension;
+                const ID = $id;
+
+                $(
+                $(#[$field_attr])*
+                field $field_name : $field_type
+                )*
+            }
+        }
     );
 }
 

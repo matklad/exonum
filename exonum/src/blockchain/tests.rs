@@ -151,9 +151,8 @@ fn handling_tx_panic(blockchain: &Blockchain, db: &mut Box<Database>) {
         struct Tx {
             const TYPE = 1;
             const ID = 0;
-            const SIZE = 8;
 
-            field value: u64 [0 => 8]
+            field value: u64
         }
     }
 
@@ -231,9 +230,8 @@ fn handling_tx_panic_storage_error(blockchain: &Blockchain) {
         struct Tx {
             const TYPE = 1;
             const ID = 0;
-            const SIZE = 8;
 
-            field value: u64 [0 => 8]
+            field value: u64
         }
     }
 
