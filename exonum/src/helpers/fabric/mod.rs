@@ -28,12 +28,15 @@ use self::internal::NotFoundInMap;
 pub use self::builder::NodeBuilder;
 pub use self::details::{Run, Finalize, GenerateNodeConfig, GenerateCommonConfig, GenerateTestnet};
 pub use self::shared::{AbstractConfig, NodePublicConfig, CommonConfigTemplate, NodePrivateConfig};
+pub use self::key::Key;
 
 mod shared;
 mod builder;
 mod details;
 mod internal;
 mod clap_backend;
+#[macro_use]
+mod key;
 
 /// Default port value.
 pub const DEFAULT_EXONUM_LISTEN_PORT: u16 = 6333;
@@ -110,8 +113,66 @@ impl Argument {
     }
 }
 
+/// Keys describing various pieces of data one can get from `Context`.
+pub mod keys {
+    use std::collections::BTreeMap;
+
+    use toml;
+
+    use node::NodeConfig;
+    use super::shared::{AbstractConfig, CommonConfigTemplate, NodePublicConfig};
+    use super::Key;
+
+    /// Configuration for this node.
+    /// Set by `finalize` and `run` commands.
+    pub const NODE_CONFIG: Key<NodeConfig> = key!("node_config");
+
+    /// Configurations for all nodes.
+    /// Set by `generate-testnet` command.
+    pub const CONFIGS: Key<Vec<NodeConfig>> = key!("configs");
+
+    /// Services configuration.
+    /// Set by `generate-testnet` command.
+    pub const SERVICES_CONFIG: Key<AbstractConfig> = key!("services_config");
+
+    /// Common configuration.
+    /// Set by `generate-config` and `finalize` commands.
+    pub const COMMON_CONFIG: Key<CommonConfigTemplate> = key!("common_config");
+
+    /// Services public configuration.
+    /// Set by `generate-config` command.
+    pub const SERVICES_PUBLIC_CONFIGS: Key<BTreeMap<String, toml::Value>> =
+        key!("services_public_configs");
+
+    /// Services secret configuration.
+    /// Set by `generate-config` command.
+    pub const SERVICES_SECRET_CONFIGS: Key<BTreeMap<String, toml::Value>> =
+        key!("services_secret_configs");
+
+    /// Public configurations for all nodes.
+    /// Set by `finalize` command.
+    pub const PUBLIC_CONFIG_LIST: Key<Vec<NodePublicConfig>> = key!("public_config_list");
+
+    /// Auditor mode.
+    /// Set by `finalize` command.
+    pub const AUDITOR_MODE: Key<bool> = key!("auditor_mode");
+}
+
+
 /// `Context` is a type, used to keep some values from `Command` into
 /// `CommandExtension` and vice verse.
+/// To access values stored inside Context, use `Key`.
+///
+/// # Examples
+///
+/// ```
+/// use exonum::node::NodeConfig;
+/// use exonum::helpers::fabric::{keys, Context};
+///
+/// fn get_node_config(context: &Context) -> NodeConfig {
+///     context.get(keys::NODE_CONFIG).unwrap()
+/// }
+/// ```
 #[derive(PartialEq, Debug, Clone, Default)]
 pub struct Context {
     args: BTreeMap<String, String>,
@@ -183,12 +244,8 @@ impl Context {
     }
 
     /// Gets the variable from the context.
-    pub fn get<'de, T: Deserialize<'de>>(&self, key: &str) -> Result<T, Box<Error>> {
-        if let Some(v) = self.variables.get(key) {
-            Ok(v.clone().try_into()?)
-        } else {
-            Err(Box::new(NotFoundInMap))
-        }
+    pub fn get<'de, T: Deserialize<'de>>(&self, key: Key<T>) -> Result<T, Box<Error>> {
+        self.get_raw(key.name())
     }
 
     /// Sets the variable in the context and returns the previous value.
@@ -196,7 +253,19 @@ impl Context {
     /// # Panic
     ///
     /// Panics if value could not be serialized as TOML.
-    pub fn set<T: Serialize>(&mut self, key: &'static str, value: T) -> Option<Value> {
+    pub fn set<T: Serialize>(&mut self, key: Key<T>, value: T) -> Option<Value> {
+        self.set_raw(key.name(), value)
+    }
+
+    fn get_raw<'de, T: Deserialize<'de>>(&self, key: &str) -> Result<T, Box<Error>> {
+        if let Some(v) = self.variables.get(key) {
+            Ok(v.clone().try_into()?)
+        } else {
+            Err(Box::new(NotFoundInMap))
+        }
+    }
+
+    fn set_raw<T: Serialize>(&mut self, key: &str, value: T) -> Option<Value> {
         let value: Value = Value::try_from(value).expect("could not convert value into toml");
         self.variables.insert(key.to_owned(), value)
     }
