@@ -297,3 +297,61 @@ pub trait ServiceFactory: 'static {
     /// Creates a new service instance from the context returned by the `Run` command.
     fn make_service(&mut self, run_context: &Context) -> Box<Service>;
 }
+
+/// TODO
+pub trait ConfigServiceFactory: 'static {
+    /// TODO
+    type Config: for<'f> Deserialize<'f>;
+
+    /// TODO
+    const SERVICE_NAME: &'static str;
+    //TODO: we could move
+    // `service_name` and `service_id` from `Service` trait into this one
+    //fn name() -> &'static str;
+    // ECR-76?
+
+    /// Returns `CommandExtension` for the specific `CommandName`.
+    #[allow(unused_variables)]
+    fn command(&mut self, command: CommandName) -> Option<Box<CommandExtension>> {
+        None
+    }
+
+    /// Creates a new service instance from the context returned by the `Run` command.
+    fn make_service(&mut self, run_context: &Context, config: Self::Config) -> Box<Service>;
+}
+
+impl<T: ConfigServiceFactory> ServiceFactory for T {
+    fn command(&mut self, command: CommandName) -> Option<Box<CommandExtension>> {
+        T::command(self, command)
+    }
+
+    fn make_service(&mut self, context: &Context) -> Box<Service> {
+        let node_config = context.get(keys::NODE_CONFIG).unwrap();
+        let config: T::Config = node_config.services_configs[T::SERVICE_NAME]
+            .clone()
+            .try_into()
+            .unwrap();
+        T::make_service(self, context, config)
+    }
+
+}
+
+pub(crate) struct ExServiceFactory {
+    inner: Box<ServiceFactory>,
+}
+
+impl ExServiceFactory {
+    pub(crate) fn new<S: ServiceFactory>(s: S) -> ExServiceFactory {
+        ExServiceFactory { inner: Box::new(s) }
+    }
+
+    pub(crate) fn command(&mut self, command: CommandName) -> Option<Box<CommandExtension>> {
+        self.inner.command(command)
+    }
+
+    pub(crate) fn make_service(&mut self, run_context: &Context) -> Box<Service> {
+        self.inner.make_service(run_context)
+    }
+}
+
+

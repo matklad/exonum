@@ -21,7 +21,7 @@ use node::Node;
 
 use super::internal::{CollectedCommand, Feedback};
 use super::clap_backend::ClapBackend;
-use super::ServiceFactory;
+use super::{ServiceFactory, ExServiceFactory};
 use super::details::{Run, Finalize, GenerateNodeConfig, GenerateCommonConfig, GenerateTestnet};
 use super::keys;
 
@@ -30,7 +30,7 @@ use super::keys;
 #[derive(Default)]
 pub struct NodeBuilder {
     commands: Vec<CollectedCommand>,
-    service_factories: Vec<Box<ServiceFactory>>,
+    service_factories: Vec<ExServiceFactory>,
 }
 
 impl NodeBuilder {
@@ -49,15 +49,19 @@ impl NodeBuilder {
     }
 
     /// Appends service to the `NodeBuilder` context.
-    pub fn with_service(mut self, mut factory: Box<ServiceFactory>) -> NodeBuilder {
+    pub fn with_service<S: ServiceFactory>(mut self, factory: S) -> NodeBuilder {
         //TODO: take endpoints, etc... (ECR-164)
+        let factory = ExServiceFactory::new(factory);
+        self.with_ex_service(factory);
+        self
+    }
 
+    fn with_ex_service(&mut self, mut factory: ExServiceFactory) {
         for command in &mut self.commands {
             let name = command.name();
             command.extend(factory.command(name))
         }
         self.service_factories.push(factory);
-        self
     }
 
     #[doc(hidden)]
