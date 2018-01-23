@@ -4,18 +4,9 @@ use crypto;
 use messages::{self, Message, RawMessage};
 
 /// TODO
-pub trait Protocol {
+pub trait ServiceMessage: Message {
     /// TODO
-    const ID: u16; // : ProtocolId?
-
-    /// TODO
-    fn for_each_transaction<V: ProtocolVisitor>(visitor: V);
-}
-
-/// TODO
-pub trait ProtocolMessage: Message {
-    /// TODO
-    type Protocol: Protocol;
+    const SERVICE_ID: u16;
     /// TODO
     const ID: u16;
 
@@ -23,51 +14,28 @@ pub trait ProtocolMessage: Message {
     fn from_raw(raw: RawMessage) -> Result<Self, encoding::Error> where Self: Sized;
 }
 
-/// TODO
-pub trait ProtocolVisitor {
-    /// TODO
-    fn visit<T: ProtocolMessage>(&mut self);
-}
-
 #[macro_export]
 macro_rules! exonum_protocol {
     {
-        $protocol_name:ident {
-            const ID = $id:expr;
+        const SERVICE_ID = $service_id:expr;
 
+        $(
+            $(#[$tx_attr:meta])*
+            struct $tx_name:ident {
             $(
-                $(#[$tx_attr:meta])*
-                struct $tx_name:ident {
-                $(
-                    $(#[$field_attr:meta])*
-                    $field_name:ident : $field_type:ty
-                ),*
-                $(,)* // optional trailing comma
-                }
-            )*
-        }
+                $(#[$field_attr:meta])*
+                $field_name:ident : $field_type:ty
+            ),*
+            $(,)* // optional trailing comma
+            }
+        )*
     }
 
     =>
 
     {
-        ///TODO
-        #[derive(Debug)]
-        pub enum $protocol_name {
-        }
-
-        impl $crate::messages::Protocol for $protocol_name {
-            const ID: u16 = $id;
-
-            fn for_each_transaction<V: $crate::messages::ProtocolVisitor>(mut visitor: V) {
-                $(
-                    visitor.visit::<$tx_name>();
-                )*
-            }
-        }
-
         __ex_proto_messages!(
-            $protocol_name,
+            $service_id,
             0,
             $(
                 $(#[$tx_attr])*
@@ -84,7 +52,7 @@ macro_rules! exonum_protocol {
 
 macro_rules! __ex_proto_messages {
     {
-        $protocol_name:ident,
+        $service_id:expr,
         $id:expr,
 
         $(#[$tx_attr:meta])*
@@ -139,7 +107,7 @@ macro_rules! __ex_proto_messages {
         impl $tx_name {
             /// TODO
             pub fn from_raw(raw: $crate::messages::RawMessage) -> Result<$tx_name, $crate::encoding::Error> {
-                $crate::messages::ProtocolMessage::from_raw(raw)
+                $crate::messages::ServiceMessage::from_raw(raw)
             }
 
             #[cfg_attr(feature="cargo-clippy", allow(too_many_arguments))]
@@ -148,11 +116,11 @@ macro_rules! __ex_proto_messages {
             #[allow(unused)]
             pub fn new($($field_name: $field_type,)*
                        secret_key: &$crate::crypto::SecretKey) -> Self {
-                use $crate::messages::{RawMessage, MessageWriter, ProtocolMessage, Protocol};
+                use $crate::messages::{RawMessage, MessageWriter, ServiceMessage};
                 let mut writer = MessageWriter::new(
                     $crate::messages::PROTOCOL_MAJOR_VERSION,
                     $crate::messages::TEST_NETWORK_ID,
-                    <Self as ProtocolMessage>::Protocol::ID,
+                    Self::SERVICE_ID,
                     $id, $tx_name::__ex_header_size() as usize,
                 );
                 __ex_for_each_field!(
@@ -167,11 +135,11 @@ macro_rules! __ex_proto_messages {
             #[allow(dead_code, unused_mut)]
             pub fn new_with_signature($($field_name: $field_type,)*
                                       signature: &$crate::crypto::Signature) -> Self {
-                use $crate::messages::{RawMessage, MessageWriter, ProtocolMessage, Protocol};
+                use $crate::messages::{RawMessage, MessageWriter, ServiceMessage};
                 let mut writer = MessageWriter::new(
                     $crate::messages::PROTOCOL_MAJOR_VERSION,
                     $crate::messages::TEST_NETWORK_ID,
-                    <Self as ProtocolMessage>::Protocol::ID,
+                    Self::SERVICE_ID,
                     $id, $tx_name::__ex_header_size() as usize,
                 );
                 __ex_for_each_field!(
@@ -207,14 +175,14 @@ macro_rules! __ex_proto_messages {
             }
         }
 
-        impl $crate::messages::ProtocolMessage for $tx_name {
-            type Protocol = $protocol_name;
+        impl $crate::messages::ServiceMessage for $tx_name {
+            const SERVICE_ID: u16 = $service_id;
             const ID: u16 = $id;
 
             /// Converts the raw message into the specific one.
             fn from_raw(raw: $crate::messages::RawMessage)
                 -> Result<$tx_name, $crate::encoding::Error> {
-                use $crate::messages::{ProtocolMessage, Protocol};
+                use $crate::messages::{ServiceMessage};
 
                 let min_message_size = $tx_name::__ex_header_size() as usize
                             + $crate::messages::HEADER_LENGTH as usize
@@ -242,9 +210,9 @@ macro_rules! __ex_proto_messages {
                         message_type: $id
                     });
                 }
-                if raw.service_id() != <Self as ProtocolMessage>::Protocol::ID {
+                if raw.service_id() != Self::SERVICE_ID {
                     return Err($crate::encoding::Error::IncorrectServiceId {
-                        service_id: <Self as ProtocolMessage>::Protocol::ID
+                        service_id: Self::SERVICE_ID
                     });
                 }
 
@@ -313,7 +281,7 @@ macro_rules! __ex_proto_messages {
 
                 use $crate::encoding::serialize::json::ExonumJson;
                 use $crate::encoding::serialize::json::reexport::from_value;
-                use $crate::messages::{RawMessage, MessageWriter, ProtocolMessage, Protocol};
+                use $crate::messages::{RawMessage, MessageWriter, ServiceMessage};
 
                 // if we could deserialize values, try append signature
                 let obj = value.as_object().ok_or("Can't cast json as object.")?;
@@ -332,7 +300,7 @@ macro_rules! __ex_proto_messages {
                 let protocol_version = from_value(obj.get("protocol_version")
                                         .ok_or("Can't get protocol_version from json")?.clone())?;
 
-                if service_id != <Self as ProtocolMessage>::Protocol::ID {
+                if service_id != Self::SERVICE_ID {
                     return Err("service_id didn't equal real service_id.".into())
                 }
 
@@ -386,16 +354,16 @@ macro_rules! __ex_proto_messages {
         }
 
         __ex_proto_messages!(
-            $protocol_name,
+            $service_id,
             $id + 1,
             $($tt)*
         );
     };
 
-    { $protocol_name:ident, $id:expr, } => {};
+    { $service_id:expr, $id:expr, } => {};
 }
 
-impl <'a, T: ProtocolMessage> encoding::SegmentField<'a> for T {
+impl <'a, T: ServiceMessage> encoding::SegmentField<'a> for T {
     fn item_size() -> encoding::Offset {
         1
     }
@@ -432,7 +400,7 @@ impl <'a, T: ProtocolMessage> encoding::SegmentField<'a> for T {
     }
 }
 
-impl<T: ProtocolMessage> storage::StorageValue for T {
+impl<T: ServiceMessage> storage::StorageValue for T {
     fn hash(&self) -> crypto::Hash {
         Message::hash(self)
     }
@@ -458,86 +426,84 @@ use crypto::{Hash, PublicKey};
 use helpers::{Height, Round, ValidatorId};
 
 exonum_protocol! {
-    Consensus {
-        const ID = 0;
+    const SERVICE_ID = 0;
 
-        /// Connect to a node.
-        ///
-        /// ### Validation
-        /// The message is ignored if its time is earlier than in the previous `Connect` message received
-        /// from the same peer.
-        ///
-        /// ### Processing
-        /// Connect to the peer.
-        ///
-        /// ### Generation
-        /// A node sends `Connect` message to all known addresses during initialization. Additionally,
-        /// the node responds by its own `Connect` message after receiving `node::Event::Connected`.
-        struct Connect {
-            /// The sender's public key.
-            pub_key: &PublicKey,
-            /// The node's address.
-            addr: SocketAddr,
-            /// Time when the message was created.
-            time: SystemTime,
-        }
+    /// Connect to a node.
+    ///
+    /// ### Validation
+    /// The message is ignored if its time is earlier than in the previous `Connect` message received
+    /// from the same peer.
+    ///
+    /// ### Processing
+    /// Connect to the peer.
+    ///
+    /// ### Generation
+    /// A node sends `Connect` message to all known addresses during initialization. Additionally,
+    /// the node responds by its own `Connect` message after receiving `node::Event::Connected`.
+    struct Connect {
+        /// The sender's public key.
+        pub_key: &PublicKey,
+        /// The node's address.
+        addr: SocketAddr,
+        /// Time when the message was created.
+        time: SystemTime,
+    }
 
-        /// Proposal for a new block.
-        ///
-        /// ### Validation
-        /// The message is ignored if it
-        ///     * contains incorrect `prev_hash`
-        ///     * is sent by non-leader
-        ///     * contains already committed transactions
-        ///     * is already known
-        ///
-        /// ### Processing
-        /// If the message contains unknown transactions, then `TransactionsRequest` is sent in reply.
-        /// Otherwise `Prevote` is broadcast.
-        ///
-        /// ### Generation
-        /// A node broadcasts `Propose` if it is a leader and is not locked for a different proposal. Also
-        /// `Propose` can be sent as response to `ProposeRequest`.
-        struct Propose {
-            /// The validator id.
-            validator: ValidatorId,
-            /// The height to which the message is related.
-            height: Height,
-            /// The round to which the message is related.
-            round: Round,
-            /// Hash of the previous block.
-            prev_hash: &Hash,
-            /// The list of transactions to include in the next block.
-            transactions: &[Hash],
-        }
+    /// Proposal for a new block.
+    ///
+    /// ### Validation
+    /// The message is ignored if it
+    ///     * contains incorrect `prev_hash`
+    ///     * is sent by non-leader
+    ///     * contains already committed transactions
+    ///     * is already known
+    ///
+    /// ### Processing
+    /// If the message contains unknown transactions, then `TransactionsRequest` is sent in reply.
+    /// Otherwise `Prevote` is broadcast.
+    ///
+    /// ### Generation
+    /// A node broadcasts `Propose` if it is a leader and is not locked for a different proposal. Also
+    /// `Propose` can be sent as response to `ProposeRequest`.
+    struct Propose {
+        /// The validator id.
+        validator: ValidatorId,
+        /// The height to which the message is related.
+        height: Height,
+        /// The round to which the message is related.
+        round: Round,
+        /// Hash of the previous block.
+        prev_hash: &Hash,
+        /// The list of transactions to include in the next block.
+        transactions: &[Hash],
+    }
 
-        /// Pre-vote for a new block.
-        ///
-        /// ### Validation
-        /// A node panics if it has already sent a different `Prevote` for the same round.
-        ///
-        /// ### Processing
-        /// Pre-vote is added to the list of known votes for the same proposal.
-        /// If `locked_round` number from the message is bigger than in a node state, then a node replies
-        /// with `PrevotesRequest`.
-        /// If there are unknown transactions in the propose specified by `propose_hash`,
-        /// `TransactionsRequest` is sent in reply.
-        /// Otherwise if all transactions are known and there are +2/3 pre-votes, then a node is locked
-        /// to that proposal and `Precommit` is broadcast.
-        ///
-        /// ### Generation
-        /// A node broadcasts `Prevote` in response to `Propose` when it has received all the transactions.
-        struct Prevote {
-            /// The validator id.
-            validator: ValidatorId,
-            /// The height to which the message is related.
-            height: Height,
-            /// The round to which the message is related.
-            round: Round,
-            /// Hash of the corresponding `Propose`.
-            propose_hash: &Hash,
-            /// Locked round.
-            locked_round: Round,
-        }
+    /// Pre-vote for a new block.
+    ///
+    /// ### Validation
+    /// A node panics if it has already sent a different `Prevote` for the same round.
+    ///
+    /// ### Processing
+    /// Pre-vote is added to the list of known votes for the same proposal.
+    /// If `locked_round` number from the message is bigger than in a node state, then a node replies
+    /// with `PrevotesRequest`.
+    /// If there are unknown transactions in the propose specified by `propose_hash`,
+    /// `TransactionsRequest` is sent in reply.
+    /// Otherwise if all transactions are known and there are +2/3 pre-votes, then a node is locked
+    /// to that proposal and `Precommit` is broadcast.
+    ///
+    /// ### Generation
+    /// A node broadcasts `Prevote` in response to `Propose` when it has received all the transactions.
+    struct Prevote {
+        /// The validator id.
+        validator: ValidatorId,
+        /// The height to which the message is related.
+        height: Height,
+        /// The round to which the message is related.
+        round: Round,
+        /// Hash of the corresponding `Propose`.
+        propose_hash: &Hash,
+        /// Locked round.
+        locked_round: Round,
     }
 }

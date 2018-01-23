@@ -25,7 +25,7 @@ use helpers::{Height, Round, ValidatorId};
 pub use self::raw::{RawMessage, MessageWriter, MessageBuffer, Message, HEADER_LENGTH,
                     PROTOCOL_MAJOR_VERSION, TEST_NETWORK_ID};
 pub use self::protocol::*;
-pub use self::proto_spec::{ProtocolMessage, Protocol, ProtocolVisitor};
+pub use self::proto_spec::{ServiceMessage};
 
 #[macro_use]
 mod spec;
