@@ -43,6 +43,11 @@ impl RawMessage {
     pub fn from_vec(vec: Vec<u8>) -> Self {
         RawMessage(sync::Arc::new(MessageBuffer::from_vec(vec)))
     }
+
+    /// Returns hash of the `RawMessage`.
+    pub fn hash(&self) -> Hash {
+        hash(self.as_ref())
+    }
 }
 
 impl Deref for RawMessage {
@@ -263,6 +268,14 @@ impl MessageWriter {
 ///
 /// [Ed25519]: ../crypto/index.html
 pub trait Message: Debug + Send + Sync {
+    fn service_id() -> u16
+    where
+        Self: Sized;
+
+    fn message_id() -> u16
+    where
+        Self: Sized;
+
     /// Converts the raw message into the specific one.
     fn from_raw(raw: RawMessage) -> Result<Self, encoding::Error>
     where
@@ -278,24 +291,7 @@ pub trait Message: Debug + Send + Sync {
 
     /// Verifies the message using given public key.
     fn verify_signature(&self, pub_key: &PublicKey) -> bool {
-        self.raw().verify_signature(pub_key)
-    }
-}
-
-impl Message for RawMessage {
-    fn from_raw(raw: RawMessage) -> Result<Self, encoding::Error> {
-        Ok(raw)
-    }
-
-    fn raw(&self) -> &RawMessage {
-        self
-    }
-
-    fn hash(&self) -> Hash {
-        hash(self.as_ref())
-    }
-
-    fn verify_signature(&self, pub_key: &PublicKey) -> bool {
-        verify(self.signature(), self.body(), pub_key)
+        let raw = self.raw();
+        verify(raw.signature(), raw.body(), pub_key)
     }
 }

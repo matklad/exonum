@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
+
+
 /// `message!` specifies a datatype for digitally signed messages that can be sent
 /// in Exonum networks. The macro offers a practical way to create [`Transaction`] types,
 /// although it does not implement `Transaction` by itself.
@@ -73,19 +76,58 @@
 /// # }
 /// ```
 #[macro_export]
-macro_rules! message {
-    (
-    $(#[$attr:meta])*
-    struct $name:ident {
-        const TYPE = $extension:expr;
-        const ID = $id:expr;
+macro_rules! messages {
+    {
+        const SERVICE_ID = $service_id:expr;
 
         $(
-        $(#[$field_attr:meta])*
-        $field_name:ident : $field_type:ty
+            $(#[$tx_attr:meta])*
+            struct $name:ident {
+            $(
+                $(#[$field_attr:meta])*
+                $field_name:ident : $field_type:ty
+            ),*
+            $(,)* // optional trailing comma
+            }
+        )*
+    }
+
+    =>
+
+    {
+        __ex_proto_messages!(
+            $service_id,
+            0,
+            $(
+                $(#[$tx_attr])*
+                struct $name {
+                $(
+                    $(#[$field_attr])*
+                    $field_name: $field_type
+                ),*
+                }
+            )*
+        );
+    };
+}
+
+#[macro_export]
+macro_rules! __ex_proto_messages {
+    {
+        $service_id:expr,
+        $message_id:expr,
+
+        $(#[$attr:meta])*
+        struct $name:ident {
+        $(
+            $(#[$field_attr:meta])*
+            $field_name:ident : $field_type:ty
         ),*
         $(,)*
-    }) => (
+       }
+
+        $($tt:tt)*
+    } => (
         #[derive(Clone, PartialEq)]
         $(#[$attr])*
         pub struct $name {
@@ -93,8 +135,11 @@ macro_rules! message {
         }
 
         impl $crate::messages::Message for $name {
+            fn service_id() -> u16 { $service_id }
+            fn message_id() -> u16 { $message_id }
+
             fn from_raw(raw: $crate::messages::RawMessage)
-                -> Result<$name, $crate::encoding::Error> {
+            -> ::std::result::Result<$name, $crate::encoding::Error> {
                 let min_message_size = $name::__ex_header_size() as usize
                             + $crate::messages::HEADER_LENGTH as usize
                             + $crate::crypto::SIGNATURE_LENGTH as usize;
@@ -116,14 +161,14 @@ macro_rules! message {
                         network_id: $crate::messages::TEST_NETWORK_ID
                     });
                 }
-                if raw.message_type() != $id {
+                if raw.message_type() != Self::message_id() {
                     return Err($crate::encoding::Error::IncorrectMessageType {
-                        message_type: $id
+                        message_type: Self::message_id()
                     });
                 }
-                if raw.service_id() != $extension {
+                if raw.service_id() != Self::service_id() {
                     return Err($crate::encoding::Error::IncorrectServiceId {
-                        service_id: $extension
+                        service_id: Self::service_id()
                     });
                 }
 
@@ -131,7 +176,7 @@ macro_rules! message {
                 let body_len = <Self>::check_fields(&raw)?;
                 if body_len.unchecked_offset() as usize +
                     $crate::crypto::SIGNATURE_LENGTH as usize != raw.len()  {
-                   return Err("Incorrect raw message length.".into())
+                    return Err("Incorrect raw message length.".into())
                 }
 
                 Ok($name { raw: raw })
@@ -157,9 +202,11 @@ macro_rules! message {
                 buffer.extend_from_slice(self.raw.as_ref().as_ref())
             }
 
-            unsafe fn from_buffer(buffer: &'a [u8],
-                                    from: $crate::encoding::Offset,
-                                    count: $crate::encoding::Offset) -> Self {
+            unsafe fn from_buffer(
+                buffer: &'a [u8],
+                from: $crate::encoding::Offset,
+                count: $crate::encoding::Offset
+            ) -> Self {
                 let raw_message: $crate::messages::RawMessage =
                                     $crate::encoding::SegmentField::from_buffer(buffer,
                                                                 from,
@@ -167,11 +214,12 @@ macro_rules! message {
                 $crate::messages::Message::from_raw(raw_message).unwrap()
             }
 
-            fn check_data(buffer: &'a [u8],
-                    from: $crate::encoding::CheckedOffset,
-                    count: $crate::encoding::CheckedOffset,
-                    latest_segment: $crate::encoding::CheckedOffset)
-              -> $crate::encoding::Result {
+            fn check_data(
+                buffer: &'a [u8],
+                from: $crate::encoding::CheckedOffset,
+                count: $crate::encoding::CheckedOffset,
+                latest_segment: $crate::encoding::CheckedOffset
+            ) -> $crate::encoding::Result {
                 let latest_segment_origin = <$crate::messages::RawMessage as
                                 $crate::encoding::SegmentField>::check_data(buffer,
                                                                 from,
@@ -198,7 +246,9 @@ macro_rules! message {
                 let mut writer = MessageWriter::new(
                     $crate::messages::PROTOCOL_MAJOR_VERSION,
                     $crate::messages::TEST_NETWORK_ID,
-                    $extension, $id, $name::__ex_header_size() as usize,
+                    Self::service_id(),
+                    Self::message_id(),
+                    $name::__ex_header_size() as usize,
                 );
                 __ex_for_each_field!(
                     __ex_message_write_field, (writer),
@@ -216,7 +266,9 @@ macro_rules! message {
                 let mut writer = MessageWriter::new(
                     $crate::messages::PROTOCOL_MAJOR_VERSION,
                     $crate::messages::TEST_NETWORK_ID,
-                    $extension, $id, $name::__ex_header_size() as usize,
+                    Self::service_id(),
+                    Self::message_id(),
+                    $name::__ex_header_size() as usize,
                 );
                 __ex_for_each_field!(
                     __ex_message_write_field, (writer),
@@ -236,18 +288,6 @@ macro_rules! message {
                     $( ($(#[$field_attr])*, $field_name, $field_type) )*
                 );
                 Ok(latest_segment)
-            }
-
-            /// Returns `message_id` usable for matching.
-            #[allow(dead_code)]
-            pub fn message_id() -> u16 {
-                $id
-            }
-
-            /// Returns `service_id` usable for matching.
-            #[allow(dead_code)]
-            pub fn service_id() -> u16 {
-                $extension
             }
 
             /// Returns the hex representation of the binary data.
@@ -316,11 +356,12 @@ macro_rules! message {
         }
 
         impl $crate::encoding::serialize::json::ExonumJson for $name {
-            fn deserialize_field<B> (value: &$crate::encoding::serialize::json::reexport::Value,
-                                        buffer: & mut B,
-                                        from: $crate::encoding::Offset,
-                                        to: $crate::encoding::Offset )
-                -> Result<(), Box<::std::error::Error>>
+            fn deserialize_field<B> (
+                value: &$crate::encoding::serialize::json::reexport::Value,
+                buffer: & mut B,
+                from: $crate::encoding::Offset,
+                to: $crate::encoding::Offset,
+            ) -> ::std::result::Result<(), Box<::std::error::Error>>
             where B: $crate::encoding::serialize::WriteBufferWrapper
             {
                 use $crate::encoding::serialize::json::ExonumJsonDeserialize;
@@ -334,7 +375,7 @@ macro_rules! message {
 
             #[allow(unused_mut)]
             fn serialize_field(&self)
-                -> Result<$crate::encoding::serialize::json::reexport::Value,
+                -> ::std::result::Result<$crate::encoding::serialize::json::reexport::Value,
                             Box<::std::error::Error + Send + Sync>>
             {
                 use $crate::encoding::serialize::json::reexport::Value;
@@ -363,7 +404,7 @@ macro_rules! message {
         impl $crate::encoding::serialize::json::ExonumJsonDeserialize for $name {
             #[allow(unused_imports, unused_variables, unused_mut)]
             fn deserialize(value: &$crate::encoding::serialize::json::reexport::Value)
-                -> Result<Self, Box<::std::error::Error>>
+                -> ::std::result::Result<Self, Box<::std::error::Error>>
             {
                 use $crate::encoding::serialize::json::ExonumJson;
                 use $crate::encoding::serialize::json::reexport::from_value;
@@ -376,8 +417,8 @@ macro_rules! message {
 
                 let signature = from_value(obj.get("signature")
                                     .ok_or("Can't get signature from json")?.clone())?;
-                let message_type = from_value(obj.get("message_id")
-                                    .ok_or("Can't get message_type from json")?.clone())?;
+                let message_id = from_value(obj.get("message_id")
+                                    .ok_or("Can't get message_id from json")?.clone())?;
                 let service_id = from_value(obj.get("service_id")
                                     .ok_or("Can't get service_id from json")?.clone())?;
 
@@ -386,11 +427,11 @@ macro_rules! message {
                 let protocol_version = from_value(obj.get("protocol_version")
                                         .ok_or("Can't get protocol_version from json")?.clone())?;
 
-                if service_id != $extension {
+                if service_id != Self::service_id() {
                     return Err("service_id didn't equal real service_id.".into())
                 }
 
-                if message_type != $id {
+                if message_id != Self::message_id() {
                     return Err("message_id didn't equal real message_id.".into())
                 }
 
@@ -398,7 +439,7 @@ macro_rules! message {
                     protocol_version,
                     network_id,
                     service_id,
-                    message_type,
+                    message_id,
                     $name::__ex_header_size() as usize,
                 );
                 let obj = body.as_object().ok_or("Can't cast body as object.")?;
@@ -413,8 +454,9 @@ macro_rules! message {
         // TODO: Rewrite Deserialize and Serialize implementation (ECR-156)
         impl<'de> $crate::encoding::serialize::reexport::Deserialize<'de> for $name {
             #[allow(unused_mut)]
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-                where D: $crate::encoding::serialize::reexport::Deserializer<'de>
+            fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+            where
+                D: $crate::encoding::serialize::reexport::Deserializer<'de>,
             {
                 use $crate::encoding::serialize::json::reexport::Value;
                 use $crate::encoding::serialize::reexport::{DeError, Deserialize};
@@ -426,8 +468,9 @@ macro_rules! message {
         }
 
         impl $crate::encoding::serialize::reexport::Serialize for $name {
-            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-                where S: $crate::encoding::serialize::reexport::Serializer
+            fn serialize<S>(&self, serializer: S) -> ::std::result::Result<S::Ok, S::Error>
+            where
+                S: $crate::encoding::serialize::reexport::Serializer,
             {
                 use $crate::encoding::serialize::reexport::SerError;
                 use $crate::encoding::serialize::json::ExonumJson;
@@ -438,7 +481,16 @@ macro_rules! message {
             }
         }
 
+
+        __ex_proto_messages!(
+            $service_id,
+            $message_id + 1,
+            $($tt)*
+        );
+
     );
+
+    { $service_id:expr, $message_id:expr, } => ();
 }
 
 #[doc(hidden)]

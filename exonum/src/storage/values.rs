@@ -281,7 +281,7 @@ impl StorageValue for RawMessage {
     }
 
     fn hash(&self) -> Hash {
-        Message::hash(self)
+        self.hash()
     }
 }
 
