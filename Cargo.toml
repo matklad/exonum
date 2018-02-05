@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "core",
     "exonum",
     "sandbox",
     "testkit",

@@ -1,0 +1,11 @@
+[package]
+name = "exonum_core"
+version = "0.5.0"
+
+[dependencies]
+serde = "1.0.10"
+serde_derive = "1.0.10"
+log = "0.4.1"
+byteorder = "1.1.0"
+
+exonum_sodiumoxide = "0.0.16"
